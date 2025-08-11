@@ -2,6 +2,11 @@
 清晨音乐台
 
 ----
+# 界面截图
+
+<img src="https://raw.githubusercontent.com/mickeywaley/qc_radio/refs/heads/main/%E7%95%8C%E9%9D%A2001.png"   />
+
+----
 
 清晨音乐台在线播放器 - 程序介绍
 
