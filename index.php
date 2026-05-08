@@ -3,8 +3,6 @@
 $chatFile = 'chat_messages.txt';
 $usersFile = 'online_users.txt';
 $cleanupTime = 300; // 5分钟无活动则视为离线
-$messageExpireDays = 3; // 消息保留天数
-$messageExpireTime = $messageExpireDays * 24 * 60 * 60; // 转换为秒
 
 // 处理在线用户
 function updateOnlineUsers() {
@@ -65,7 +63,7 @@ function getOnlineUsersCount() {
 
 // 处理聊天消息
 function handleChatMessage() {
-    global $chatFile, $messageExpireTime;
+    global $chatFile;
     
     if($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['message']) && !empty($_POST['message'])) {
         $message = trim($_POST['message']);
@@ -74,13 +72,11 @@ function handleChatMessage() {
         $message = htmlspecialchars($message);
         
         if(strlen($message) > 0 && strlen($message) <= 500) {
-            $currentTime = time();
             $time = date('H:i');
             $entry = array(
                 'time' => $time,
                 'username' => $username,
-                'message' => $message,
-                'timestamp' => $currentTime // 增加时间戳用于过期清理
+                'message' => $message
             );
             
             $messages = array();
@@ -88,15 +84,6 @@ function handleChatMessage() {
                 $data = file_get_contents($chatFile);
                 $messages = unserialize($data);
             }
-            
-            // 清理超过3天的消息
-            $validMessages = [];
-            foreach ($messages as $msg) {
-                if (isset($msg['timestamp']) && $currentTime - $msg['timestamp'] <= $messageExpireTime) {
-                    $validMessages[] = $msg;
-                }
-            }
-            $messages = $validMessages;
             
             // 限制消息数量为100条
             if(count($messages) >= 100) {
@@ -115,25 +102,22 @@ function handleChatMessage() {
 
 // 获取聊天消息
 function getChatMessages() {
-    global $chatFile, $messageExpireTime;
+    global $chatFile;
     
     if(!file_exists($chatFile)) {
         return array();
     }
     
-    $currentTime = time();
     $data = file_get_contents($chatFile);
-    $messages = unserialize($data);
-    
-    // 过滤过期消息
-    $validMessages = [];
-    foreach ($messages as $msg) {
-        if (isset($msg['timestamp']) && $currentTime - $msg['timestamp'] <= $messageExpireTime) {
-            $validMessages[] = $msg;
-        }
-    }
-    
-    return $validMessages;
+    return unserialize($data);
+}
+
+// 清屏功能：清空聊天记录
+function clearChatMessages() {
+    global $chatFile;
+    // 直接覆盖为空数组
+    file_put_contents($chatFile, serialize(array()));
+    return true;
 }
 
 // 处理请求
@@ -152,6 +136,12 @@ if($_SERVER['REQUEST_METHOD'] === 'POST') {
         $count = getOnlineUsersCount();
         header('Content-Type: application/json');
         echo json_encode(array('count' => $count));
+        exit;
+    } elseif(isset($_POST['action']) && $_POST['action'] === 'clear_chat') {
+        // 新增：处理清屏请求
+        clearChatMessages();
+        header('Content-Type: application/json');
+        echo json_encode(array('status' => 'success'));
         exit;
     }
 }
@@ -251,7 +241,7 @@ $onlineCount = updateOnlineUsers();
                         <audio id="radio-player" class="w-full" controls>
                             <source src="https://lhttp.qingting.fm/live/4915/64k.mp3" type="audio/mpeg">
                             您的浏览器不支持音频播放
-                        
+                        </audio>
                         
                         <!-- 音量控制区域 -->
                         <div class="mt-6">
@@ -317,17 +307,20 @@ $onlineCount = updateOnlineUsers();
                 </div>
             </div>
 
-            <!-- 聊天区域 - 已修复滚动条和高度 -->
+            <!-- 聊天区域 -->
             <div class="lg:col-span-1">
                 <div class="bg-white rounded-xl shadow-lg h-full flex flex-col">
-                    <div class="p-4 border-b border-gray-200">
+                    <div class="p-4 border-b border-gray-200 flex justify-between items-center">
                         <h3 class="text-lg font-semibold flex items-center">
                             <i class="fa fa-comments text-accent mr-2"></i> 听众聊天室
                         </h3>
+                        <!-- 清屏按钮 -->
+                        <button id="clear-chat" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg text-sm transition-all">
+                            <i class="fa fa-trash mr-1"></i>清屏
+                        </button>
                     </div>
                     
-                    <!-- 修复：固定高度 + 滚动条 -->
-                    <div id="chat-messages" class="flex-1 p-4 overflow-y-auto" style="max-height: 600px;">
+                    <div id="chat-messages" class="flex-1 p-4 overflow-y-auto scrollbar-hide">
                         <!-- 聊天消息将通过JS动态加载 -->
                         <div class="text-center text-gray-500 text-sm py-4">
                             欢迎加入聊天室，与其他听众交流
@@ -354,9 +347,7 @@ $onlineCount = updateOnlineUsers();
         <!-- 页脚 -->
         <footer class="mt-12 text-center text-gray-500 text-sm">
             <p>© 2023 清晨音乐台 - 在线播放器</p>
-            <p class="mt-1">本播放器仅供学习交流使用 | 
-                <a href="https://github.com/mickeywaley/qc_radio/" target="_blank" class="text-primary hover:underline">GitHub</a>
-            </p>
+            <p class="mt-1">本播放器仅供学习交流使用</p>
         </footer>
     </div>
 
@@ -461,6 +452,7 @@ $onlineCount = updateOnlineUsers();
         const usernameInput = document.getElementById('username');
         const sendMessageBtn = document.getElementById('send-message');
         const onlineCountEl = document.getElementById('online-count');
+        const clearChatBtn = document.getElementById('clear-chat'); // 清屏按钮
         
         // 发送消息
         function sendMessage() {
@@ -534,6 +526,25 @@ $onlineCount = updateOnlineUsers();
             });
         }
         
+        // 清屏功能
+        function clearChat() {
+            if(!confirm('确定要清空所有聊天记录吗？')) return;
+            fetch('', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'action=clear_chat'
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success'){
+                    loadMessages();
+                    showNotification('聊天记录已清空');
+                }
+            })
+        }
+        
         // 更新在线人数
         function updateOnlineCount() {
             fetch('', {
@@ -574,6 +585,7 @@ $onlineCount = updateOnlineUsers();
         
         // 事件监听
         sendMessageBtn.addEventListener('click', sendMessage);
+        clearChatBtn.addEventListener('click', clearChat); // 绑定清屏事件
         
         messageInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
