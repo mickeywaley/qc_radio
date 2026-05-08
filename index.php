@@ -3,6 +3,8 @@
 $chatFile = 'chat_messages.txt';
 $usersFile = 'online_users.txt';
 $cleanupTime = 300; // 5分钟无活动则视为离线
+$messageExpireDays = 3; // 消息保留天数
+$messageExpireTime = $messageExpireDays * 24 * 60 * 60; // 转换为秒
 
 // 处理在线用户
 function updateOnlineUsers() {
@@ -63,7 +65,7 @@ function getOnlineUsersCount() {
 
 // 处理聊天消息
 function handleChatMessage() {
-    global $chatFile;
+    global $chatFile, $messageExpireTime;
     
     if($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['message']) && !empty($_POST['message'])) {
         $message = trim($_POST['message']);
@@ -72,11 +74,13 @@ function handleChatMessage() {
         $message = htmlspecialchars($message);
         
         if(strlen($message) > 0 && strlen($message) <= 500) {
+            $currentTime = time();
             $time = date('H:i');
             $entry = array(
                 'time' => $time,
                 'username' => $username,
-                'message' => $message
+                'message' => $message,
+                'timestamp' => $currentTime // 增加时间戳用于过期清理
             );
             
             $messages = array();
@@ -84,6 +88,15 @@ function handleChatMessage() {
                 $data = file_get_contents($chatFile);
                 $messages = unserialize($data);
             }
+            
+            // 清理超过3天的消息
+            $validMessages = [];
+            foreach ($messages as $msg) {
+                if (isset($msg['timestamp']) && $currentTime - $msg['timestamp'] <= $messageExpireTime) {
+                    $validMessages[] = $msg;
+                }
+            }
+            $messages = $validMessages;
             
             // 限制消息数量为100条
             if(count($messages) >= 100) {
@@ -102,14 +115,25 @@ function handleChatMessage() {
 
 // 获取聊天消息
 function getChatMessages() {
-    global $chatFile;
+    global $chatFile, $messageExpireTime;
     
     if(!file_exists($chatFile)) {
         return array();
     }
     
+    $currentTime = time();
     $data = file_get_contents($chatFile);
-    return unserialize($data);
+    $messages = unserialize($data);
+    
+    // 过滤过期消息
+    $validMessages = [];
+    foreach ($messages as $msg) {
+        if (isset($msg['timestamp']) && $currentTime - $msg['timestamp'] <= $messageExpireTime) {
+            $validMessages[] = $msg;
+        }
+    }
+    
+    return $validMessages;
 }
 
 // 处理请求
@@ -227,7 +251,7 @@ $onlineCount = updateOnlineUsers();
                         <audio id="radio-player" class="w-full" controls>
                             <source src="https://lhttp.qingting.fm/live/4915/64k.mp3" type="audio/mpeg">
                             您的浏览器不支持音频播放
-                        </audio>
+                        
                         
                         <!-- 音量控制区域 -->
                         <div class="mt-6">
@@ -293,7 +317,7 @@ $onlineCount = updateOnlineUsers();
                 </div>
             </div>
 
-            <!-- 聊天区域 -->
+            <!-- 聊天区域 - 已修复滚动条和高度 -->
             <div class="lg:col-span-1">
                 <div class="bg-white rounded-xl shadow-lg h-full flex flex-col">
                     <div class="p-4 border-b border-gray-200">
@@ -302,7 +326,8 @@ $onlineCount = updateOnlineUsers();
                         </h3>
                     </div>
                     
-                    <div id="chat-messages" class="flex-1 p-4 overflow-y-auto scrollbar-hide">
+                    <!-- 修复：固定高度 + 滚动条 -->
+                    <div id="chat-messages" class="flex-1 p-4 overflow-y-auto" style="max-height: 600px;">
                         <!-- 聊天消息将通过JS动态加载 -->
                         <div class="text-center text-gray-500 text-sm py-4">
                             欢迎加入聊天室，与其他听众交流
@@ -329,7 +354,9 @@ $onlineCount = updateOnlineUsers();
         <!-- 页脚 -->
         <footer class="mt-12 text-center text-gray-500 text-sm">
             <p>© 2023 清晨音乐台 - 在线播放器</p>
-            <p class="mt-1">本播放器仅供学习交流使用</p>
+            <p class="mt-1">本播放器仅供学习交流使用 | 
+                <a href="https://github.com/mickeywaley/qc_radio/" target="_blank" class="text-primary hover:underline">GitHub</a>
+            </p>
         </footer>
     </div>
 
@@ -584,4 +611,3 @@ $onlineCount = updateOnlineUsers();
     </script>
 </body>
 </html>
-    
